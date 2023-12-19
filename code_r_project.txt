@@ -1,0 +1,561 @@
+#libraries needed
+library(readr)
+library(lubridate)
+library(tidyverse)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(stringi)
+library(jsonlite)
+
+# Load the CSV file
+file_path <- "C:/Users/melan/OneDrive/Documenti/spotify-2023.csv"
+spotify_data <- read.csv(file_path, fileEncoding = "latin1")
+
+
+# Check the structure of the data
+str(spotify_data)
+head(spotify_data)
+tail(spotify_data)
+print(colnames(spotify_data))
+
+# Data cleaning and manipulation
+
+missing_rows <- which(!complete.cases(spotify_data))
+spotify_data_cleaned <- spotify_data[-missing_rows, ]
+spotify_data <- distinct(spotify_data)
+
+
+spotify_data$streams <- as.numeric(spotify_data$streams)
+
+spotify_data <- spotify_data[-575, ] 
+
+
+# Check the structure of the cleaned data
+str(spotify_data)
+head(spotify_data)
+
+
+# --DATA ANALYSIS--
+
+# Top 10 artists
+top_artists <- spotify_data %>%
+  group_by(artist.s._name) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  slice(1:10) 
+
+print("Top 10 Artists of 2023:")
+print(top_artists)
+
+# number of songs by each artist
+song_count <- spotify_data %>%
+  filter(artist.s._name %in% top_artists$artist.s._name) %>%
+  group_by(artist.s._name) %>%
+  summarise(count = n())
+
+# Bar plot
+ggplot(song_count, aes(y = artist.s._name, x = count, fill = artist.s._name)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = count), vjust = -0.5, color = "black") +  # Add count labels above the bars
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(y = "Artist", x = "Count", title = "Number of Songs Top 10 Artists")
+
+
+
+
+#  top 10 artists according to the streams
+top10_artists_streams <- spotify_data %>%
+  group_by(artist.s._name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(desc(total_streams)) %>%
+  slice(1:10)
+print("top 10 streamed artists")
+print(top10_artists_streams)
+
+
+# top 20 artists according to the streams
+top20_artists_streams <- spotify_data %>%
+  group_by(artist.s._name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(desc(total_streams)) %>%
+  slice(1:20)
+print("top 20 streamed artists")
+print(top20_artists_streams)
+
+# top 50 artists according to the streams
+top50_artists_streams <- spotify_data %>%
+  group_by(artist.s._name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(desc(total_streams)) %>%
+  slice(1:50)
+print("top 50 streamed artists")
+print(top50_artists_streams)
+
+
+# Top streamed songs of the top 10 most streamed artists
+top_songs_of_top_artists <- spotify_data %>%
+  mutate(streams = as.numeric(streams)) %>%
+  filter(artist.s._name %in% top10_artists_streams$artist.s._name) %>%
+  group_by(artist.s._name, track_name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(artist.s._name, desc(total_streams)) %>%
+  mutate(rank = row_number()) %>%
+  filter(rank == 1)
+
+print("Top Songs of Top 10 Streamed Artists:")
+print(top_songs_of_top_artists)
+
+
+# bar chart
+ggplot(top_songs_of_top_artists, aes(x = artist.s._name, y = total_streams, fill = track_name)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Top Songs of Top 10 Streamed Artists",
+       x = "Artist",
+       y = "Total Streams") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+# Top streamed song 
+top_song_streams <- spotify_data %>%
+  filter(streams == max(streams)) 
+print("Top streamed Song:")
+print(top_song_streams)
+
+# top 10 streamed songs
+top10_songs_streams <- spotify_data %>% 
+  group_by(track_name) %>% 
+  summarise(streams = sum(streams)) %>% 
+  arrange(desc(streams)) %>% 
+  slice(1:10)
+
+print("Top 10 Streamed Songs:")
+print(top10_songs_streams)
+
+# Audio features of the top 10 streamed songs
+audio_features <- spotify_data %>%
+  filter(track_name %in% top10_songs_streams$track_name) %>%  # Corrected the filtering based on track_name
+  group_by(track_name) %>%
+  summarise(
+    danceability = mean(danceability_.), 
+    energy = mean(energy_.),
+    valence = mean(valence_.)
+  )
+
+print("Audio Features for the Top 10 Streamed Songs:")
+print(audio_features)
+
+
+# top 20 streamed songs
+top20_songs_streams <- spotify_data %>%
+  group_by(track_name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(desc(total_streams)) %>%
+  slice(1:20)
+print("top streamed songs")
+print(top20_songs_streams)
+
+
+# top 50 streamed songs
+top50_songs_streams <- spotify_data %>%
+  group_by(track_name) %>%
+  summarise(total_streams = sum(streams, na.rm = TRUE)) %>%
+  arrange(desc(total_streams)) %>%
+  slice(1:50)
+print("top streamed songs")
+print(top50_songs_streams)
+
+
+
+#MODEL 1
+
+
+# Create the popularity variable
+spotify_data$popularity <- spotify_data$streams / max(spotify_data$streams)
+
+# Linear regression model to quantify the relationship between popularity and the audio features: danceability, energy, valence.
+
+
+linear_model <- lm(popularity ~ danceability_. + energy_. + valence_., data = spotify_data)
+
+summary(linear_model)
+
+predictions <- predict(linear_model, newdata = spotify_data)
+rmse <- sqrt(mean((spotify_data$popularity_ - predictions)^2))
+print(paste("Root Mean Squared Error (RMSE):", rmse))
+
+# dataframe with actual and predicted values
+prediction_data <- data.frame(
+  Actual = spotify_data$popularity,
+  Predicted = predictions
+)
+
+# Scatter plot 
+ggplot(prediction_data, aes(x = Actual, y = Predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "red", linetype = "dashed") +
+  labs(title = "Actual vs. Predicted Popularity",
+       x = "Actual Popularity",
+       y = "Predicted Popularity") +
+  theme_minimal()
+
+
+
+
+# Divide bpm into genres
+spotify_data <- spotify_data %>%
+  mutate(genre = case_when(
+    bpm >= 70 & bpm <= 110 ~ "Hip hop / Funk / Reggaeton",
+    bpm > 110 & bpm <= 140 ~ "Disco music / House / Progressive house / Hi-NRG",
+    bpm > 120 & bpm <= 145 ~ "Dance",
+    bpm > 125 & bpm <= 150 ~ "Trance / Dubstep",
+    bpm > 150 & bpm <= 200 ~ "Punk",
+    TRUE ~ "Other"
+  ))
+
+
+#top 1 song in charts
+top_song_charts<- spotify_data %>%
+  filter(in_spotify_charts == max(in_spotify_charts)) 
+print("Top Song_charts:")
+print(top_song_charts)
+
+#top 10 Songs in spotify charts
+top10_songs_charts <- spotify_data %>%
+  arrange(desc(in_spotify_charts)) %>%
+  head(10)
+print("Top 10 Songs_charts:")
+print(top10_songs_charts)
+
+#top 20 Songs in spotify charts
+top20_songs_charts <- spotify_data %>%
+  arrange(desc(in_spotify_charts)) %>%
+  head(20)
+print("Top 20 Songs_charts:")
+print(top20_songs_charts)
+
+#top 50 Songs in spotify charts
+top50_songs_charts <- spotify_data %>%
+  arrange(desc(in_spotify_charts)) %>%
+  head(50)
+print("Top 50 Songs_charts:")
+print(top50_songs_charts)
+
+# most popular genre within the most streamed songs
+
+top10_songs_streams <- spotify_data %>%
+  arrange(desc(streams)) %>%
+  head(10)
+
+# number of songs per genre
+genre_counts <- top10_songs_streams %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# Create the pie chart
+ggplot(genre_counts, aes(x = "", y = Percentage, fill = factor(genre))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Genre Distribution of Top 10 Streamd Songs", fill = "Genre")
+
+
+
+top20_songs_streams <- top20_songs_streams %>%
+  left_join(spotify_data %>% select(track_name, danceability_., valence_., energy_.), by = "track_name")
+
+top20_songs_streams <- spotify_data %>%
+  arrange(desc(streams)) %>%
+  head(20)
+
+genre_counts <- top20_songs_streams %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(genre_counts, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of Top 20  Streamed Songs", x = "Count", y = "Genre") +
+  theme_minimal()
+
+
+top50_songs_streams <- spotify_data %>%
+  arrange(desc(streams)) %>%
+  head(50)
+
+genre_counts <- top50_songs_streams %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(genre_counts, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of Top 50 Streamed Songs", x = "Count", y = "Genre") +
+  theme_minimal()
+
+
+# Filter songs from the year 2023
+songs_2023 <- spotify_data %>% filter(released_year == 2023)
+
+#  number of songs per genre for the year 2023
+genre_counts_2023 <- songs_2023 %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# bar chart
+ggplot(genre_counts_2023, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of songs 2023", x = "Count", y = "Genre") +
+  theme_minimal()
+
+
+#years distribution of the most streamed songs
+# number of songs per year
+year_counts <- top10_songs_streams %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# pie chart
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(released_year, "\n",round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 10 Streamed Songs", fill = "Year")
+
+
+year_counts <- top20_songs_streams %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(released_year, "\n",round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 20 Streamed Songs", fill = "Year")
+
+
+year_counts <- top50_songs_streams %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(released_year, "\n", round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 50 Streamed Songs", fill = "Year")
+
+
+
+# number of songs per month
+month_counts <- top10_songs_streams %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+#  pie chart
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(month.abb[released_month], "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 10 Most Streamed Songs", fill = "Month")
+
+
+
+month_counts <- top20_songs_streams %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(released_month, "\n", round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 20 Most Streamed Songs", fill = "Month")
+
+
+ggplot(top20_songs_streams, aes(x = released_month)) +
+  geom_bar(fill = 'darkgreen', color = 'black', stat = 'count') +
+  geom_text(stat = 'count', aes(label = after_stat(count)), vjust = -0.5) +  # Use after_stat(count) instead of ..count..
+  facet_wrap(~ released_month, scales = "free_y") +
+  theme_minimal() +
+  labs(x = "Month", y = "Count", title = "Released Month Distribution for the Top 20 Streamed Songs")
+
+
+
+month_counts <- top50_songs_streams %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(month.abb[released_month], "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 50 Most Streamed Songs", fill = "Month")
+
+
+
+
+#  number of songs per year
+year_counts <- top10_songs_charts %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# pie chart
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0(released_year, "\n", round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 10 Charting Songs", fill = "Year")
+
+
+
+year_counts <- top20_songs_charts %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  coord_polar("y", start = 0) +
+  geom_label(aes(label = paste0( released_year, "\n",round(Percentage, 1), "%")), position = position_stack(vjust = 0.5)) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 20 Charting Songs", fill = "Year")
+
+
+
+year_counts <- top50_songs_charts %>%
+  group_by(released_year) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+
+ggplot(year_counts, aes(x = "", y = Percentage, fill = factor(released_year))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(released_year, "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Year Distribution of Top 50 Charting Songs", fill = "Year")
+
+
+# number of songs per month
+month_counts <- top10_songs_charts %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+# pie chart 
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(month.abb[released_month], "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 10 Charting Songs", fill = "Month")
+
+
+
+month_counts <- top20_songs_charts %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(month.abb[released_month], "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 20 Charting Songs", fill = "Month")
+
+
+
+month_counts <- top50_songs_charts %>%
+  group_by(released_month) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(month_counts, aes(x = "", y = Percentage, fill = factor(released_month))) +
+  geom_bar(width = 1, stat = "identity") +
+  geom_label(aes(label = paste0(month.abb[released_month], "\n", round(Percentage, 1), "%")), 
+             position = position_stack(vjust = 0.5)) +
+  coord_polar("y", start = 0) +
+  theme_void() +
+  labs(title = "Month Distribution of Top 50 Charting Songs", fill = "Month")
+
+
+# number of songs per genre
+genre_counts <- top10_songs_charts %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+#  bar chart
+ggplot(genre_counts, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of Top 10 Charting Songs", x = "Count", y = "Genre") +
+  theme_minimal()
+
+
+
+genre_counts <- top20_songs_charts %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(genre_counts, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of Top 20 Charting Songs", x = "Count", y = "Genre") +
+  theme_minimal()
+
+
+genre_counts <- top50_songs_charts %>%
+  group_by(genre) %>%
+  summarise(Count = n()) %>%
+  mutate(Percentage = Count / sum(Count) * 100)
+
+ggplot(genre_counts, aes(x = fct_reorder(genre, -Count), y = Count, fill = genre)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")), hjust = -0.2, size = 3) +
+  labs(title = "Genre Distribution of Top 50 Charting Songs", x = "Count", y = "Genre") +
+  theme_minimal()
+
+#MODEL 2 
+
+# linear regression model predicting the popularity of songs based on the released month
+spotify_data$released_month <- as.factor(spotify_data$released_month)
+
+# boxplot
+ggplot(spotify_data, aes(x = released_month, y = popularity, fill = released_month)) +
+  geom_boxplot() +
+  labs(title = "Distribution of Popularity by Release Month",
+       x = "Release Month",
+       y = "Popularity") +
+  scale_fill_brewer(palette = "Set3") +   #orange
+  theme_minimal()
+summary(release_month_model)
